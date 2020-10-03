@@ -29,9 +29,9 @@
 # ________________________________________________
 
 # Path to Raw files
-photoPath='/Volumes/Storage/Lightroom/2020/2020-09-24/'
+photoPath='../sample-photos/'
 
-csvFile='jlm-jv-tennis'
+csvFile='sample'
 # csvFile name without extension
 
 photoExt='dng'
@@ -49,6 +49,7 @@ export LIGHTMAGENTA='\e[95m'
 export YELLOW='\e[1;33m'
 export COLOR_RESET="\e[0m"
 
+# Warning message to make sure all your current metadata is saved to file before running this script.
 printf "\t${LIGHTRED}Make sure to SAVE all Metadata in Lightroom before running.${COLOR_RESET}\n"
 
 read -r -p "Continue? [y/N] " response
@@ -60,15 +61,13 @@ else
     exit 1
 fi
 
-
+# Check to make sure the path to the photos exists - if not, quit script.
 if [[ -d ${photoPath} ]]; then
     printf "\t${LIGHTGREEN}Directory ${photoPath} exists. Let's continue.${COLOR_RESET}\n"
 else
     printf "\t${LIGHTRED}Error: Directory ${photoPath} does NOT exist. Quiting.${COLOR_RESET}\n"
     exit 1
 fi
-
-
 
 # Verify CSV file exists
 if [[ -f ./${csvFile}.csv ]]; then
@@ -78,6 +77,7 @@ else
     exit 1
 fi
 
+# Convert the csv data to json
 csvjson $csvFile.csv > $csvFile.json
 
 jsonData=$(cat ${csvFile}.json)
@@ -88,7 +88,7 @@ jsonLength=$(echo $jsonData | jq '. | length')
 # echo $jsonLength
 printf "\t${LIGHTMAGENTA}Found ${jsonLength} people in the CSV Data.${COLOR_RESET}\n"
 
-
+# Loop through each person in the data, writing name and grade tag to EXIF.
 for (( i = 0; i < $jsonLength; i++ )); do
 
     personGrade=$(echo $jsonData | jq -r .[$i].Grade)
@@ -106,38 +106,41 @@ for (( i = 0; i < $jsonLength; i++ )); do
 
     IFS=', ' read -r -a array <<< "$photoList"
     for element in "${array[@]}"; do
-        rawFile=$(sed 's/.\{3\}$//' <<< "$element")
-        echo ${photoPath}${rawFile}${photoExt}
+        fileName=$(sed 's/.\{3\}$//' <<< "$element")
+        echo ${photoPath}${fileName}
 
-        # Verify photo file exists
-        if [[ -f ${photoPath}${rawFile}${photoExt} ]]; then
-            printf "\t${LIGHTGREEN} file ${rawFile}dng exists. Let's continue.${COLOR_RESET}\n"
+        # Verify photo file exists. Tries first photoExt first, then 2nd, then fallback to jpg.
+        if [[ -f ${photoPath}${fileName}${photoExt} ]]; then
+            printf "\t${LIGHTGREEN} file ${fileName}dng exists. Let's continue.${COLOR_RESET}\n"
             fileType=dng
-        elif [[ -f ${photoPath}${rawFile}${photoExt1} ]]; then
-            printf "\t${LIGHTGREEN} file ${rawFile}tif exists. Let's continue.${COLOR_RESET}\n"
+        elif [[ -f ${photoPath}${fileName}${photoExt1} ]]; then
+            printf "\t${LIGHTGREEN} file ${fileName}tiff exists. Let's continue.${COLOR_RESET}\n"
             fileType=tif
-        elif [[ -f ${photoPath}${rawFile}jpg ]]; then
-            printf "\t${LIGHTGREEN} file ${rawFile}jpg exists. Let's continue.${COLOR_RESET}\n"
+        elif [[ -f ${photoPath}${fileName}jpg ]]; then
+            printf "\t${LIGHTGREEN} file ${fileName}jpg exists. Let's continue.${COLOR_RESET}\n"
             fileType=jpg
         else
             printf "\t${LIGHTGREEN} file not found.${COLOR_RESET}\n"
         fi
 
         # Write the fullName to the XMP Title Metadata field (Personal preference)
-        exiftool -overwrite_original -Title="$fullName" ${photoPath}${rawFile}${fileType}
+        exiftool -overwrite_original -Title="$fullName" ${photoPath}${fileName}${fileType}
         #Verify tag was written:
-        exiftool -Title ${photoPath}${rawFile}${fileType}
+        exiftool -Title ${photoPath}${fileName}${fileType}
         
         # Write the fullName as a Keyword so when exporting to PhotoDay it will tag the person's name
-        exiftool -overwrite_original -Subject+="$fullName" ${photoPath}${rawFile}${fileType}
+        exiftool -overwrite_original -Subject+="$fullName" ${photoPath}${fileName}${fileType}
 
-        # If the person is a senior, tag that as well
-        if [ $personGrade == "12" ]; then
-            exiftool -overwrite_original -Subject+="senior" ${photoPath}${rawFile}${fileType}
-        fi
+        # # If the person is a senior, tag that as well
+        # if [ $personGrade == "12" ]; then
+        #     exiftool -overwrite_original -Subject+="senior" ${photoPath}${fileName}${fileType}
+        # fi
         
+        # Write the grade as tag in format grade-xx
+        exiftool -overwrite_original -Subject+="grade-${personGrade}" ${photoPath}${fileName}${fileType}
+
         #Verify Keyword tag(s) are written:
-        exiftool -Subject   ${photoPath}${rawFile}${fileType}
+        exiftool -Subject   ${photoPath}${fileName}${fileType}
     done
 done
 # Cleanup
