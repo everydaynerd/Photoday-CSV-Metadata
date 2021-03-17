@@ -20,6 +20,8 @@
 # Set the `photoPath` variable below to your directory path (including the trailing slash) eg: /Volumes/Storage/Lightroom/2020/06-20/
 # Set the `csvFile` variable below to the name of your csv file (excluding the file extension) eg: girls-golf - not girls-golf.csv
 # If needed, set the `photoExt` variable to the photos file extension have. I convert mine on import to Lightroom to dng, so that's the default.
+# Don't use spaces in your folder names if possible. The photoPath might break if using spaces. 
+
 
 # Install Prerequsites:
 # brew install csvkit
@@ -28,7 +30,7 @@
 
 # ________________________________________________
 
-# Path to Raw files
+# Path to Raw files (With trailing slash)
 photoPath='../sample-photos/'
 
 csvFile='sample'
@@ -49,7 +51,6 @@ export LIGHTMAGENTA='\e[95m'
 export YELLOW='\e[1;33m'
 export COLOR_RESET="\e[0m"
 
-# Warning message to make sure all your current metadata is saved to file before running this script.
 printf "\t${LIGHTRED}Make sure to SAVE all Metadata in Lightroom before running.${COLOR_RESET}\n"
 
 read -r -p "Continue? [y/N] " response
@@ -61,13 +62,28 @@ else
     exit 1
 fi
 
-# Check to make sure the path to the photos exists - if not, quit script.
+read -r -p "Enter the year/season: " year
+
+printf "\t${LIGHTGREEN}You entered the following data:"
+printf "\t\t${LIGHTGREEN}YEAR: ${LIGHTBLUE}${year}${COLOR_RESET}\n"
+
+read -r -p "Continue? [y/N] " yearresponse
+if [[ "$yearresponse" =~ ^([yY][eE][sS]|[yY])+$ ]]; then
+    printf "\t${LIGHTBLUE}OK great.${COLOR_RESET}\n"
+
+else
+    printf "\t${LIGHTRED}OK Bye!${COLOR_RESET}\n"
+    exit 1
+fi
+
 if [[ -d ${photoPath} ]]; then
     printf "\t${LIGHTGREEN}Directory ${photoPath} exists. Let's continue.${COLOR_RESET}\n"
 else
     printf "\t${LIGHTRED}Error: Directory ${photoPath} does NOT exist. Quiting.${COLOR_RESET}\n"
     exit 1
 fi
+
+
 
 # Verify CSV file exists
 if [[ -f ./${csvFile}.csv ]]; then
@@ -77,7 +93,6 @@ else
     exit 1
 fi
 
-# Convert the csv data to json
 csvjson $csvFile.csv > $csvFile.json
 
 jsonData=$(cat ${csvFile}.json)
@@ -88,63 +103,113 @@ jsonLength=$(echo $jsonData | jq '. | length')
 # echo $jsonLength
 printf "\t${LIGHTMAGENTA}Found ${jsonLength} people in the CSV Data.${COLOR_RESET}\n"
 
-# Loop through each person in the data, writing name and grade tag to EXIF.
+
 for (( i = 0; i < $jsonLength; i++ )); do
 
     personGrade=$(echo $jsonData | jq -r .[$i].Grade)
+      if [ -z "$personGrade" ]; then
+        echo "\$personGrade is NULL"
+        personGrade=0
+    else
+        echo "\$personGrade is NOT NULL"
+    fi
+  
 
-    # echo $jsonData | jq -r --arg i "$i" '.[$i|tonumber]."Last Name"'
+    accessCode=$(echo $jsonData | jq -r --arg i "$i" '.[$i|tonumber]."Access Code"')
     lastName=$(echo $jsonData | jq -r --arg i "$i" '.[$i|tonumber]."Last Name"')
-    # echo $lastName
-    # echo $jsonData | jq -r --arg i "$i" '.[$i|tonumber]."First Name"'
     firstName=$(echo $jsonData | jq -r --arg i "$i" '.[$i|tonumber]."First Name"')
-    # echo $firstName
     fullName="$firstName $lastName"
-    # echo $fullName
+    orgname=$(echo $jsonData | jq -r --arg i "$i" '.[$i|tonumber]."School"')
+    orgname=$(echo $orgname | sed 's/ //g')
+    activity=$(echo $jsonData | jq -r --arg i "$i" '.[$i|tonumber]."Sport Type"')
+    activity=$(echo $activity | sed 's/ //g')
+    team=$(echo $jsonData | jq -r --arg i "$i" '.[$i|tonumber]."Team"')
+    league=$(echo $jsonData | jq -r --arg i "$i" '.[$i|tonumber]."League"')
+    
+    if [ -z "$(echo $jsonData | jq -r .[$i].League)" ]; then
+        echo "League doesn't exist in CSV"
+    else
+        echo "League does exist"
+        leagueName=$(echo $jsonData | jq -r .[$i].League)
+    fi
+
+    if [ -z "$(echo $jsonData | jq -r .[$i].Team)" ]; then
+        echo "Team doesn't exist in CSV"
+    else
+        echo "Team does exist"
+        teamName=$(echo $jsonData | jq -r .[$i].Team)
+    fi
+    
     photoList=$(echo $jsonData | jq -r --arg i "$i" '.[$i|tonumber]."Photo Filenames"')
     printf "\t${LIGHTCYAN}Updating Metadata for ${YELLOW}${fullName}.${COLOR_RESET}\n"
 
     IFS=', ' read -r -a array <<< "$photoList"
     for element in "${array[@]}"; do
-        fileName=$(sed 's/.\{3\}$//' <<< "$element")
-        echo ${photoPath}${fileName}
+        rawFile=$(sed 's/.\{3\}$//' <<< "$element")
+        echo ${photoPath}${rawFile}${photoExt}
 
-        # Verify photo file exists. Tries first photoExt first, then 2nd, then fallback to jpg.
-        if [[ -f ${photoPath}${fileName}${photoExt} ]]; then
-            printf "\t${LIGHTGREEN} file ${fileName}dng exists. Let's continue.${COLOR_RESET}\n"
+        # Verify photo file exists
+        if [[ -f ${photoPath}${rawFile}${photoExt} ]]; then
+            printf "\t${LIGHTGREEN} file ${rawFile}dng exists. Let's continue.${COLOR_RESET}\n"
             fileType=dng
-        elif [[ -f ${photoPath}${fileName}${photoExt1} ]]; then
-            printf "\t${LIGHTGREEN} file ${fileName}tiff exists. Let's continue.${COLOR_RESET}\n"
+        elif [[ -f ${photoPath}${rawFile}${photoExt1} ]]; then
+            printf "\t${LIGHTGREEN} file ${rawFile}tif exists. Let's continue.${COLOR_RESET}\n"
             fileType=tif
-        elif [[ -f ${photoPath}${fileName}jpg ]]; then
-            printf "\t${LIGHTGREEN} file ${fileName}jpg exists. Let's continue.${COLOR_RESET}\n"
+        elif [[ -f ${photoPath}${rawFile}jpg ]]; then
+            printf "\t${LIGHTGREEN} file ${rawFile}jpg exists. Let's continue.${COLOR_RESET}\n"
             fileType=jpg
         else
             printf "\t${LIGHTGREEN} file not found.${COLOR_RESET}\n"
         fi
 
         # Write the fullName to the XMP Title Metadata field (Personal preference)
-        exiftool -overwrite_original -Title="$fullName" ${photoPath}${fileName}${fileType}
+        exiftool -overwrite_original -Title="$fullName" ${photoPath}${rawFile}${fileType}
         #Verify tag was written:
-        exiftool -Title ${photoPath}${fileName}${fileType}
+        exiftool -Title ${photoPath}${rawFile}${fileType}
         
         # Write the fullName as a Keyword so when exporting to PhotoDay it will tag the person's name
-        exiftool -overwrite_original -Subject+="$fullName" ${photoPath}${fileName}${fileType}
+        exiftool -overwrite_original -Subject+="$fullName" ${photoPath}${rawFile}${fileType}
 
-        # # If the person is a senior, tag that as well
-        # if [ $personGrade == "12" ]; then
-        #     exiftool -overwrite_original -Subject+="senior" ${photoPath}${fileName}${fileType}
-        # fi
+        # If the person is a senior, tag that as well
+        if [ $personGrade == "12" ]; then
+            exiftool -overwrite_original -Subject+="senior" ${photoPath}${rawFile}${fileType}
+        fi
         
-        # Write the grade as tag in format grade-xx
-        exiftool -overwrite_original -Subject+="grade-${personGrade}" ${photoPath}${fileName}${fileType}
+        # # If League exists, write it.
+        if [ ! -z "$leagueName" ]; then
+            exiftool -overwrite_original -Subject+="${leagueName}" ${photoPath}${rawFile}${fileType}
+            exiftool -overwrite_original -Caption="${leagueName}" ${photoPath}${rawFile}${fileType}
+        fi
+
+        # If Team exists, write it.
+        if [ ! -z "$teamName" ]; then
+            exiftool -overwrite_original -Subject+="${teamName}" ${photoPath}${rawFile}${fileType}
+        fi
+
+        # ------- Write Job Identifier -------
+        # Format for writing: {Year/Season}_{School/Organization}_{Sport/Activity}_{Team}_{League} - Example: 20-21_WHHS_Basketball_Varsity_Boys
+
+        # If League defined (girls/boys) write it i the Job Identifier. If not, then leave it out.
+        if [ ! -z "$league" ]; then #leage variable DOES exist
+            exiftool -overwrite_original -xmp:transmissionreference=${year}_${orgname}_${activity}_${team}_${league} ${photoPath}${rawFile}${fileType}
+        else # leage variable DOESN'T exist.
+            exiftool -overwrite_original -xmp:transmissionreference=${year}_${orgname}_${activity}_${team} ${photoPath}${rawFile}${fileType}
+        fi
+        # ---------------------------------
+        
+        #Write Gallery Code in User Comment
+        exiftool -overwrite_original -UserComment=PhotoDayGallery:${accessCode} ${photoPath}${rawFile}${fileType}
+
+
 
         #Verify Keyword tag(s) are written:
-        exiftool -Subject   ${photoPath}${fileName}${fileType}
+        exiftool -Subject   ${photoPath}${rawFile}${fileType}
+        exiftool -Caption   ${photoPath}${rawFile}${fileType}
     done
 done
 # Cleanup
 rm ./${csvFile}.json
+
 
 printf "\t${LIGHTBLUE}OK all finished!${COLOR_RESET}\n\n"
 printf "\t${LIGHTBLUE}Now open Lightroom, select the files that have been updated, choose menu option Metadata, Read Metadata from Files${COLOR_RESET}\n\n"
